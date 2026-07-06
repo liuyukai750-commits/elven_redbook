@@ -1,0 +1,35 @@
+[
+  {
+    "noteUrl": "https://www.xiaohongshu.com/explore/sample-note-1",
+    "noteTitle": "离婚财产分割常见问题",
+    "author": "法务科普号",
+    "commentId": "c001",
+    "accountName": "小敏",
+    "userId": "u001",
+    "profileUrl": "https://www.xiaohongshu.com/user/profile/u001",
+    "comment": "我现在也在离婚，想咨询抚养权和财产分割，需要律师的话怎么联系？",
+    "createdAt": "2026-07-06T10:00:00+08:00"
+  },
+  {
+    "noteUrl": "https://www.xiaohongshu.com/explore/sample-note-2",
+    "noteTitle": "劳动仲裁流程",
+    "author": "职场法律",
+    "commentId": "c002",
+    "accountName": "打工人A",
+    "userId": "u002",
+    "profileUrl": "https://www.xiaohongshu.com/user/profile/u002",
+    "comment": "公司拖欠工资三个月，还把我辞退了，可以劳动仲裁吗？",
+    "createdAt": "2026-07-06T11:00:00+08:00"
+  },
+  {
+    "noteUrl": "https://www.xiaohongshu.com/explore/sample-note-3",
+    "noteTitle": "合同纠纷避坑",
+    "author": "合同笔记",
+    "commentId": "c003",
+    "accountName": "看热闹",
+    "userId": "u003",
+    "profileUrl": "https://www.xiaohongshu.com/user/profile/u003",
+    "comment": "学习了，谢谢分享",
+    "createdAt": "2026-07-06T12:00:00+08:00"
+  }
+]

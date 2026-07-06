@@ -1,0 +1,9 @@
+node_modules/
+output/
+red_output*/
+chrome-profile/
+.redbook/
+*.log
+*.cookie
+cookies*.json
+~$*.xlsx

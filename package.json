@@ -1,0 +1,22 @@
+{
+  "name": "redbook-legal-leads",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local Xiaohongshu legal lead screening and export workflow.",
+  "scripts": {
+    "sample": "node scripts/legal-leads.mjs sample",
+    "from-file": "node scripts/legal-leads.mjs from-file",
+    "contact-queue": "node scripts/legal-leads.mjs contact-queue",
+    "from-replies": "node scripts/legal-leads.mjs from-replies",
+    "dm-queue": "node scripts/legal-leads.mjs dm-queue",
+    "dm-replies": "node scripts/legal-leads.mjs dm-replies",
+    "browser-snippet": "node scripts/legal-leads.mjs browser-snippet",
+    "chrome:launch": "node scripts/chrome-cdp-redbook.mjs launch",
+    "chrome:collect": "node scripts/chrome-cdp-redbook.mjs collect",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
