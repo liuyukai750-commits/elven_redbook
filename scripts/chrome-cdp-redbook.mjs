@@ -4,7 +4,7 @@ import { spawn } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { buildLeads, createXlsxBuffer, toCsv } from "./legal-leads.mjs";
+import { buildLeads, createXlsxBuffer } from "./legal-leads.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
@@ -30,7 +30,8 @@ const BUSINESS_KEYWORDS = [
   "婚姻法",
   "婚姻家事"
 ];
-const XLSX_HEADERS = ["account_identity", "surname_or_title", "phone", "dispute_type"];
+const LEAD_TABLE_FIELDS = ["account_name", "source_comment", "surname_or_title", "phone", "dispute_type"];
+const LEAD_TABLE_HEADERS = ["账号名", "评论内容", "姓氏/称呼", "电话", "纠纷"];
 
 async function launchChrome(args) {
   const port = Number(args.port ?? DEFAULT_PORT);
@@ -339,19 +340,31 @@ async function extractComments(cdp, folderIndex, keyword, candidate) {
 async function writeLeadFiles(folder, comments, config) {
   const leads = buildLeads(comments, config);
   await writeJson(path.join(folder, "legal-leads.json"), leads);
-  await writeFile(path.join(folder, "legal-leads.csv"), toCsv(leads), "utf8");
-  const rows = leads.map(lead => XLSX_HEADERS.map(header => String(lead[header] ?? "")));
-  await writeFile(path.join(folder, "legal-leads.xlsx"), createXlsxBuffer(XLSX_HEADERS, rows));
+  await writeFile(path.join(folder, "legal-leads.csv"), toLeadTableCsv(leads), "utf8");
+  await writeFile(path.join(folder, "legal-leads.xlsx"), createXlsxBuffer(LEAD_TABLE_HEADERS, leadTableRows(leads)));
   return leads;
 }
 
 async function writeTotalLeadFiles(outputRoot, leads) {
   const basePath = await nextDailyBasePath(outputRoot);
-  const rows = leads.map(lead => XLSX_HEADERS.map(header => String(lead[header] ?? "")));
   await writeJson(`${basePath}.json`, leads);
-  await writeFile(`${basePath}.csv`, toCsv(leads), "utf8");
-  await writeFile(`${basePath}.xlsx`, createXlsxBuffer(XLSX_HEADERS, rows));
+  await writeFile(`${basePath}.csv`, toLeadTableCsv(leads), "utf8");
+  await writeFile(`${basePath}.xlsx`, createXlsxBuffer(LEAD_TABLE_HEADERS, leadTableRows(leads)));
   return `${basePath}.xlsx`;
+}
+
+function leadTableRows(leads) {
+  return leads.map(lead => LEAD_TABLE_FIELDS.map(field => String(lead[field] ?? "")));
+}
+
+function toLeadTableCsv(leads) {
+  const rows = [LEAD_TABLE_HEADERS, ...leadTableRows(leads)];
+  return `\uFEFF${rows.map(row => row.map(csvEscape).join(",")).join("\n")}\n`;
+}
+
+function csvEscape(value) {
+  const text = String(value ?? "");
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
 async function pageState(cdp) {
