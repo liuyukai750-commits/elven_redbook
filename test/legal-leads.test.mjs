@@ -264,7 +264,7 @@ test("buildDmQueue dedupes accounts and uses fixed first-touch template", () => 
   assert.equal(queue[0].status, "queued_first_touch");
   assert.equal(queue[0].account_identity, "u1");
   assert.match(queue[0].first_message, /测试律所/);
-  assert.match(queue[0].first_message, /婚姻家事/);
+  assert.match(queue[0].first_message, /法律相关问题/);
 });
 
 test("buildDmQueue keeps the highest-score lead when deduping accounts", () => {
