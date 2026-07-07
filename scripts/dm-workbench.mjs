@@ -257,6 +257,8 @@ function workbenchHtml() {
     .item.active { border-color: var(--blue); box-shadow: var(--shadow); }
     .item .top { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
     .name { font-weight: 700; overflow-wrap: anywhere; }
+    .quick-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .quick-actions button { padding: 6px 8px; font-size: 12px; }
     .badge { flex: none; border-radius: 999px; padding: 3px 7px; font-size: 12px; background: #eef2f7; color: var(--muted); }
     .badge.ready { background: #e7f4ef; color: var(--green); }
     .badge.sent { background: #e7eef7; color: var(--blue); }
@@ -393,14 +395,27 @@ function workbenchHtml() {
       }
       els.list.innerHTML = rows.map(item => {
         const badgeClass = item.status === "first_touch_sent" ? "sent" : String(item.status || "").startsWith("skipped") ? "skip" : "ready";
-        return '<button class="item ' + (item.queue_id === selectedId ? 'active' : '') + '" data-id="' + escapeHtml(item.queue_id) + '">' +
+        return '<div class="item ' + (item.queue_id === selectedId ? 'active' : '') + '" data-id="' + escapeHtml(item.queue_id) + '">' +
           '<div class="top"><span class="name">' + escapeHtml(item.account_name || item.account_identity || "未命名账号") + '</span><span class="badge ' + badgeClass + '">' + escapeHtml(item.status || "") + '</span></div>' +
           '<div class="comment">' + escapeHtml(item.source_comment || "") + '</div>' +
-        '</button>';
+          '<div class="quick-actions">' +
+            '<button class="primary" data-action="copy-open">复制并打开</button>' +
+            '<button data-action="copy">复制</button>' +
+            '<button data-action="open">打开主页</button>' +
+            '<button class="blue" data-action="sent">已发送</button>' +
+            '<button class="warn" data-action="skip">跳过</button>' +
+          '</div>' +
+        '</div>';
       }).join("");
       for (const node of els.list.querySelectorAll(".item")) {
-        node.addEventListener("click", () => {
+        node.addEventListener("click", event => {
+          const action = event.target?.dataset?.action;
           selectedId = node.dataset.id;
+          contextId = node.dataset.id;
+          if (action) {
+            handleItemAction(action, node.dataset.id);
+            return;
+          }
           render();
         });
         node.addEventListener("contextmenu", event => {
@@ -534,7 +549,11 @@ function workbenchHtml() {
       if (!action) return;
       event.stopPropagation();
       hideContextMenu();
-      const item = contextItem();
+      await handleItemAction(action, contextId);
+    }
+
+    async function handleItemAction(action, itemId) {
+      const item = queue.find(row => row.queue_id === itemId) || contextItem();
       if (!item) return;
       if (action === "copy-open") await copyAndOpen(item);
       if (action === "copy") await copyText(item.first_message || "");
