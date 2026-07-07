@@ -1,5 +1,6 @@
 node_modules/
 output/
+output[0-9]*/
 red_output*/
 chrome-profile/
 .redbook/

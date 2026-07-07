@@ -10,7 +10,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
 const DEFAULT_PORT = 9222;
 const DEFAULT_PROFILE = "D:/Redbook_workflow/chrome-profile";
-const DEFAULT_OUTPUT = "D:/Redbook_workflow/red_output";
+const DEFAULT_OUTPUT_PREFIX = "output";
 const DEFAULT_CONFIG = path.join(ROOT, "config", "legal-keywords.json");
 const BUSINESS_KEYWORDS = [
   "律师",
@@ -61,8 +61,8 @@ async function collect(args) {
   const port = Number(args.port ?? DEFAULT_PORT);
   const keyword = String(args.keyword ?? "离婚");
   const limit = Number(args.limit ?? 10);
-  const outputRoot = path.resolve(String(args.output ?? DEFAULT_OUTPUT));
-  const config = JSON.parse(await readFile(String(args.config ?? DEFAULT_CONFIG), "utf8"));
+  const outputRoot = path.resolve(String(args.output ?? defaultOutputRoot()));
+  const config = JSON.parse(stripBom(await readFile(String(args.config ?? DEFAULT_CONFIG), "utf8")));
 
   await mkdir(outputRoot, { recursive: true });
   for (let index = 0; index < limit; index += 1) {
@@ -78,6 +78,7 @@ async function collect(args) {
     await writeJson(path.join(outputRoot, "screening.json"), screening);
 
     const summary = [];
+    const allLeads = [];
     for (let index = 0; index < limit; index += 1) {
       const folder = path.join(outputRoot, String(index));
       const candidate = screening.selected[index];
@@ -110,7 +111,8 @@ async function collect(args) {
 
         const comments = await extractComments(cdp, index, keyword, candidate);
         await writeJson(path.join(folder, "comments.json"), comments);
-        await writeLeadFiles(folder, comments, config);
+        const leads = await writeLeadFiles(folder, comments, config);
+        allLeads.push(...leads);
         const event = {
           index,
           status: "completed",
@@ -137,8 +139,10 @@ async function collect(args) {
     }
 
     await writeJson(path.join(outputRoot, "run-summary.json"), summary);
+    const totalTable = await writeTotalLeadFiles(outputRoot, allLeads);
     console.log(JSON.stringify({
       outputRoot,
+      totalTable,
       selected: screening.selected.length,
       completed: summary.filter(item => item.status === "completed").length,
       failed: summary.filter(item => item.status === "failed").length,
@@ -338,6 +342,16 @@ async function writeLeadFiles(folder, comments, config) {
   await writeFile(path.join(folder, "legal-leads.csv"), toCsv(leads), "utf8");
   const rows = leads.map(lead => XLSX_HEADERS.map(header => String(lead[header] ?? "")));
   await writeFile(path.join(folder, "legal-leads.xlsx"), createXlsxBuffer(XLSX_HEADERS, rows));
+  return leads;
+}
+
+async function writeTotalLeadFiles(outputRoot, leads) {
+  const basePath = await nextDailyBasePath(outputRoot);
+  const rows = leads.map(lead => XLSX_HEADERS.map(header => String(lead[header] ?? "")));
+  await writeJson(`${basePath}.json`, leads);
+  await writeFile(`${basePath}.csv`, toCsv(leads), "utf8");
+  await writeFile(`${basePath}.xlsx`, createXlsxBuffer(XLSX_HEADERS, rows));
+  return `${basePath}.xlsx`;
 }
 
 async function pageState(cdp) {
@@ -472,6 +486,50 @@ async function fetchJson(url) {
     throw new Error(`无法连接 Chrome 调试端口：${url}`);
   }
   return response.json();
+}
+
+function stripBom(value) {
+  return value.replace(/^\uFEFF/, "");
+}
+
+function defaultOutputRoot(date = new Date()) {
+  return path.join(ROOT, `${DEFAULT_OUTPUT_PREFIX}${dateStamp(date)}`);
+}
+
+async function nextDailyBasePath(outputRoot, date = new Date()) {
+  const stamp = dateStamp(date);
+  const first = path.join(outputRoot, stamp);
+  if (!await exists(`${first}.xlsx`) && !await exists(`${first}.csv`) && !await exists(`${first}.json`)) {
+    return first;
+  }
+  for (let index = 0; index < 1000; index += 1) {
+    const candidate = path.join(outputRoot, `${stamp}-${index}`);
+    if (!await exists(`${candidate}.xlsx`) && !await exists(`${candidate}.csv`) && !await exists(`${candidate}.json`)) {
+      return candidate;
+    }
+  }
+  throw new Error(`无法生成当天总表文件名：${outputRoot}`);
+}
+
+function dateStamp(date) {
+  const parts = new Intl.DateTimeFormat("zh-CN", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(date);
+  const pick = type => parts.find(part => part.type === type)?.value ?? "";
+  return `${pick("year")}${pick("month")}${pick("day")}`;
+}
+
+async function exists(filePath) {
+  try {
+    await readFile(filePath);
+    return true;
+  } catch (error) {
+    if (error.code === "ENOENT") return false;
+    throw error;
+  }
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
