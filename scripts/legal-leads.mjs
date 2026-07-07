@@ -123,7 +123,7 @@ async function runFromFile(args) {
 
   const outputDir = path.resolve(args["output-dir"] ?? DEFAULT_OUTPUT_DIR);
   const config = await loadConfig(args.config ?? DEFAULT_CONFIG);
-  const raw = JSON.parse(await readFile(path.resolve(input), "utf8"));
+  const raw = await readJsonFile(path.resolve(input));
   const comments = normalizeComments(raw);
   const leads = buildLeads(comments, config);
 
@@ -191,7 +191,7 @@ async function runContactQueue(args) {
   const input = path.resolve(args.input ?? path.join(DEFAULT_OUTPUT_DIR, "legal-leads.json"));
   const outputDir = path.resolve(args["output-dir"] ?? DEFAULT_OUTPUT_DIR);
   const template = args.template ?? await readOptionalText(args["template-file"]) ?? "你好，看到你在评论里提到法律问题，如果还需要初步梳理，可以把大概情况发我。";
-  const leads = JSON.parse(await readFile(input, "utf8"));
+  const leads = await readJsonFile(input);
   const queue = buildContactQueue(leads, template);
 
   await mkdir(outputDir, { recursive: true });
@@ -213,8 +213,8 @@ async function runFromReplies(args) {
 
   const outputDir = path.resolve(args["output-dir"] ?? DEFAULT_OUTPUT_DIR);
   const leadsPath = path.resolve(args.leads ?? path.join(outputDir, "legal-leads.json"));
-  const replies = normalizeReplies(JSON.parse(await readFile(path.resolve(repliesPath), "utf8")));
-  const leads = JSON.parse(await readFile(leadsPath, "utf8"));
+  const replies = normalizeReplies(await readJsonFile(path.resolve(repliesPath)));
+  const leads = await readJsonFile(leadsPath);
   const updated = updateLeadsFromReplies(leads, replies);
 
   await mkdir(outputDir, { recursive: true });
@@ -239,7 +239,7 @@ async function runDmQueue(args) {
   const options = await loadDmOptions(args);
   validateDmOptions(options);
 
-  const leads = JSON.parse(await readFile(input, "utf8"));
+  const leads = await readJsonFile(input);
   const queue = buildDmQueue(leads, options);
 
   await mkdir(outputDir, { recursive: true });
@@ -264,8 +264,8 @@ async function runDmReplies(args) {
   const options = await loadDmOptions(args);
   validateDmOptions(options);
 
-  const replies = normalizeDmReplies(JSON.parse(await readFile(path.resolve(repliesPath), "utf8")));
-  const leads = JSON.parse(await readFile(leadsPath, "utf8"));
+  const replies = normalizeDmReplies(await readJsonFile(path.resolve(repliesPath)));
+  const leads = await readJsonFile(leadsPath);
   const updated = updateLeadsFromDmReplies(leads, replies, options);
   const summaryRows = toDmSummaryRows(updated, { onlyComplete: args["include-partial"] !== true });
 
@@ -373,8 +373,12 @@ function timestampForFile() {
   return new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
 }
 
+async function readJsonFile(filePath) {
+  const raw = await readFile(path.resolve(filePath), "utf8");
+  return JSON.parse(raw.replace(/^\uFEFF/, ""));
+}
 async function loadConfig(configPath) {
-  return JSON.parse(await readFile(path.resolve(configPath), "utf8"));
+  return readJsonFile(path.resolve(configPath));
 }
 
 async function loadDmOptions(args) {
@@ -393,7 +397,7 @@ async function loadDmOptions(args) {
 
 async function readOptionalJson(filePath) {
   try {
-    return JSON.parse(await readFile(path.resolve(filePath), "utf8"));
+    return readJsonFile(path.resolve(filePath));
   } catch (error) {
     if (error.code === "ENOENT") return {};
     throw error;
