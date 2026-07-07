@@ -515,7 +515,7 @@ async function loadDmOptions(args) {
 
 async function readOptionalJson(filePath) {
   try {
-    return readJsonFile(path.resolve(filePath));
+    return await readJsonFile(path.resolve(filePath));
   } catch (error) {
     if (error.code === "ENOENT") return {};
     throw error;

@@ -486,6 +486,36 @@ test("dm-mark-sent updates queue and matching leads json", async () => {
   assert.equal(leads[1].status, "new");
 });
 
+test("dm-queue works with CLI firm options when dm config file is missing", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "redbook-dm-queue-"));
+  const input = path.join(dir, "legal-leads.json");
+  await writeFile(input, JSON.stringify([
+    {
+      lead_id: "lead_1",
+      account_identity: "u1",
+      account_name: "王女士",
+      profile_url: "https://www.xiaohongshu.com/user/profile/u1",
+      source_comment: "离婚财产和抚养权想咨询律师",
+      dispute_type: "婚姻家事",
+      score: 90
+    }
+  ], null, 2), "utf8");
+
+  await main([
+    "dm-queue",
+    "--input", input,
+    "--output-dir", dir,
+    "--dm-config", path.join(dir, "missing-dm-config.json"),
+    "--firm-name", "测试律所",
+    "--firm-phone", "010-12345678"
+  ]);
+
+  const queue = JSON.parse(await readFile(path.join(dir, "dm-queue.json"), "utf8"));
+  assert.equal(queue.length, 1);
+  assert.equal(queue[0].status, "ready_for_review");
+  assert.match(queue[0].first_message, /测试律所/);
+});
+
 test("updateLeadsFromDmReplies extracts complete contact info and summary rows", () => {
   const leads = [
     {
