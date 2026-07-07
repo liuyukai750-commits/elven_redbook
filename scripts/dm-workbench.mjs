@@ -2,6 +2,7 @@
 
 import { createServer } from "node:http";
 import { readFile, writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { markDmQueueSent } from "./dm-assistant.mjs";
@@ -10,6 +11,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
 const DEFAULT_OUTPUT_DIR = path.join(ROOT, "output");
 const DEFAULT_PORT = 4177;
+const DEFAULT_HOST = "127.0.0.1";
 
 export async function main(argv = process.argv.slice(2)) {
   const args = parseArgs(argv);
@@ -17,6 +19,7 @@ export async function main(argv = process.argv.slice(2)) {
   const queuePath = path.resolve(args.queue ?? path.join(outputDir, "dm-queue.json"));
   const leadsPath = path.resolve(args.leads ?? path.join(outputDir, "legal-leads.json"));
   const port = Number(args.port ?? DEFAULT_PORT);
+  const host = String(args.host ?? DEFAULT_HOST);
   const state = { queuePath, leadsPath };
 
   if (args.check) {
@@ -33,8 +36,11 @@ export async function main(argv = process.argv.slice(2)) {
     }
   });
 
-  await new Promise(resolve => server.listen(port, "127.0.0.1", resolve));
-  console.log(`建联工作台已启动：http://127.0.0.1:${port}`);
+  await new Promise(resolve => server.listen(port, host, resolve));
+  for (const url of buildAccessUrls(host, port)) {
+    console.log(`访问地址：${url}`);
+  }
+  console.log(`本机地址：http://127.0.0.1:${port}`);
   console.log(`队列文件：${queuePath}`);
   console.log(`线索文件：${leadsPath}`);
 }
@@ -54,6 +60,25 @@ export function parseArgs(argv) {
     }
   }
   return args;
+}
+
+export function buildAccessUrls(host, port) {
+  if (host === "0.0.0.0" || host === "::") {
+    const urls = [`http://127.0.0.1:${port}/`];
+    for (const ip of getLanIpv4Addresses()) urls.push(`http://${ip}:${port}/`);
+    return urls;
+  }
+  return [`http://${host}:${port}/`];
+}
+
+function getLanIpv4Addresses() {
+  return Object.values(os.networkInterfaces())
+    .flat()
+    .filter(Boolean)
+    .filter(item => item.family === "IPv4" && !item.internal)
+    .map(item => item.address)
+    .filter(address => !address.startsWith("169.254."))
+    .sort();
 }
 
 async function routeRequest(request, response, state) {
