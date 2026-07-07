@@ -11,7 +11,9 @@ import {
   toCsv
 } from "../scripts/legal-leads.mjs";
 import {
+  buildSkippedDmQueue,
   buildDmQueue,
+  isCompetitorAccount,
   normalizeDmReplies,
   toDmCsv,
   toDmSummaryRows,
@@ -261,7 +263,7 @@ test("buildDmQueue dedupes accounts and uses fixed first-touch template", () => 
   });
 
   assert.equal(queue.length, 1);
-  assert.equal(queue[0].status, "queued_first_touch");
+  assert.equal(queue[0].status, "ready_for_review");
   assert.equal(queue[0].account_identity, "u1");
   assert.match(queue[0].first_message, /测试律所/);
   assert.match(queue[0].first_message, /法律相关问题/);
@@ -326,6 +328,43 @@ test("buildDmQueue skips leads already in conversation states", () => {
   });
 
   assert.equal(queue.length, 0);
+});
+
+test("buildDmQueue skips possible lawyer or legal-service accounts", () => {
+  const leads = [
+    {
+      lead_id: "lawyer",
+      account_identity: "u1",
+      account_name: "长沙离婚律师王律",
+      profile_url: "https://www.xiaohongshu.com/user/profile/u1",
+      source_comment: "离婚财产怎么分？",
+      dispute_type: "婚姻家事",
+      score: 90
+    },
+    {
+      lead_id: "client",
+      account_identity: "u2",
+      account_name: "想咨询的小刘",
+      profile_url: "https://www.xiaohongshu.com/user/profile/u2",
+      source_comment: "离婚财产和抚养权都想咨询律师",
+      dispute_type: "婚姻家事",
+      score: 90
+    }
+  ];
+
+  const options = {
+    firmName: "测试律所",
+    firmPhone: "010-12345678"
+  };
+  const queue = buildDmQueue(leads, options);
+  const skipped = buildSkippedDmQueue(leads, options);
+
+  assert.equal(isCompetitorAccount(leads[0]), true);
+  assert.equal(isCompetitorAccount(leads[1]), false);
+  assert.equal(queue.length, 1);
+  assert.equal(queue[0].lead_id, "client");
+  assert.equal(skipped.length, 1);
+  assert.equal(skipped[0].status, "skipped_competitor");
 });
 
 test("updateLeadsFromDmReplies extracts complete contact info and summary rows", () => {

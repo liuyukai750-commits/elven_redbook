@@ -8,6 +8,7 @@ import {
   DM_DISPLAY_HEADERS,
   DM_EXPORT_HEADERS,
   buildDmQueue,
+  buildSkippedDmQueue,
   createDmOptions,
   extractAccountId,
   normalizeDmReplies,
@@ -241,16 +242,21 @@ async function runDmQueue(args) {
 
   const leads = await readJsonFile(input);
   const queue = buildDmQueue(leads, options);
+  const skipped = buildSkippedDmQueue(leads, options);
 
   await mkdir(outputDir, { recursive: true });
   const jsonPath = path.join(outputDir, "dm-queue.json");
   const csvPath = path.join(outputDir, "dm-queue.csv");
+  const skippedJsonPath = path.join(outputDir, "dm-skipped.json");
   await writeOutputFile(jsonPath, JSON.stringify(queue, null, 2), "utf8");
   await writeOutputFile(csvPath, toDmQueueCsv(queue), "utf8");
+  await writeOutputFile(skippedJsonPath, JSON.stringify(skipped, null, 2), "utf8");
 
   console.log(`Generated ${queue.length} DM queue items.`);
+  console.log(`Skipped ${skipped.length} possible lawyer/legal-service accounts.`);
   console.log(`JSON: ${jsonPath}`);
   console.log(`CSV: ${csvPath}`);
+  console.log(`Skipped JSON: ${skippedJsonPath}`);
 }
 
 async function runDmReplies(args) {
@@ -391,7 +397,8 @@ async function loadDmOptions(args) {
     firmPhone: args["firm-phone"] ?? config.firmPhone ?? config.firm_phone,
     firstMessageTemplate: template || config.firstMessageTemplate || config.first_message_template,
     dailySendLimit: args["daily-send-limit"] ?? config.dailySendLimit ?? config.daily_send_limit,
-    minScore: args["min-score"] ?? config.minScore ?? config.min_score
+    minScore: args["min-score"] ?? config.minScore ?? config.min_score,
+    competitorKeywords: args["competitor-keywords"] ?? config.competitorKeywords ?? config.competitor_keywords
   });
 }
 

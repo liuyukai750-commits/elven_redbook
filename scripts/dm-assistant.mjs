@@ -53,6 +53,17 @@ const SKIP_QUEUE_STATUSES = new Set([
   "info_complete"
 ]);
 
+const DEFAULT_COMPETITOR_KEYWORDS = [
+  "律师",
+  "律所",
+  "法务",
+  "法律咨询",
+  "法律服务",
+  "普法",
+  "诉讼",
+  "律师事务所"
+];
+
 export const DM_EXPORT_HEADERS = [
   "account_identity",
   "surname_or_title",
@@ -75,7 +86,10 @@ export function createDmOptions(options = {}) {
     trustMessageTemplate: options.trustMessageTemplate ?? options.trust_message_template ?? TRUST_MESSAGE_TEMPLATE,
     phoneMessageTemplate: options.phoneMessageTemplate ?? options.phone_message_template ?? PHONE_MESSAGE_TEMPLATE,
     dailySendLimit: Number(options.dailySendLimit ?? options.daily_send_limit ?? 30),
-    minScore: Number(options.minScore ?? options.min_score ?? 25)
+    minScore: Number(options.minScore ?? options.min_score ?? 25),
+    competitorKeywords: normalizeKeywordList(
+      options.competitorKeywords ?? options.competitor_keywords ?? DEFAULT_COMPETITOR_KEYWORDS
+    )
   };
 }
 
@@ -101,6 +115,7 @@ export function buildDmQueue(leads, options = {}) {
     if (!accountIdentity || !lead.source_comment) continue;
     if (SKIP_QUEUE_STATUSES.has(lead.status)) continue;
     if (score && score < config.minScore) continue;
+    if (isCompetitorAccount(lead, config.competitorKeywords)) continue;
     if (seen.has(dedupeKey)) continue;
     seen.add(dedupeKey);
 
@@ -115,14 +130,34 @@ export function buildDmQueue(leads, options = {}) {
       source_comment: lead.source_comment ?? "",
       dispute_type: lead.dispute_type || inferDisputeType(lead.source_comment) || "",
       trust_stage: "first_touch_ready",
-      status: "queued_first_touch",
+      status: "ready_for_review",
       risk_flags: [],
-      remarks: "首句使用固定律所助理模板；发送前必须人工确认。",
+      remarks: "首句使用固定律所助理模板；请在发送前核对账号和上下文。",
       created_at: new Date().toISOString()
     });
   }
 
   return queue.slice(0, config.dailySendLimit);
+}
+
+export function buildSkippedDmQueue(leads, options = {}) {
+  const config = createDmOptions(options);
+  return leads
+    .filter(lead => isCompetitorAccount(lead, config.competitorKeywords))
+    .map((lead, index) => ({
+      queue_id: `skip_${String(index + 1).padStart(4, "0")}`,
+      lead_id: lead.lead_id ?? "",
+      account_identity: resolveAccountIdentity(lead),
+      account_id: lead.account_id ?? extractAccountId(lead.profile_url) ?? "",
+      account_name: lead.account_name ?? "",
+      profile_url: lead.profile_url ?? "",
+      source_comment: lead.source_comment ?? "",
+      dispute_type: lead.dispute_type || inferDisputeType(lead.source_comment) || "",
+      status: "skipped_competitor",
+      risk_flags: ["possible_lawyer_or_legal_service_account"],
+      remarks: "账号名或身份字段命中疑似同行关键词，跳过建联。",
+      created_at: new Date().toISOString()
+    }));
 }
 
 export function markDmQueueSent(queue, sentAt = new Date().toISOString()) {
@@ -310,6 +345,16 @@ export function resolveAccountIdentity(lead) {
   ).trim();
 }
 
+export function isCompetitorAccount(lead, keywords = DEFAULT_COMPETITOR_KEYWORDS) {
+  const haystack = [
+    lead.account_name,
+    lead.account_identity,
+    lead.account_id,
+    lead.profile_url
+  ].map(value => String(value ?? "")).join(" ");
+  return normalizeKeywordList(keywords).some(keyword => keyword && haystack.includes(keyword));
+}
+
 export function extractAccountId(profileUrl = "") {
   const value = String(profileUrl || "");
   const match = value.match(/\/user\/profile\/([^/?#]+)/);
@@ -321,6 +366,16 @@ export function inferDisputeType(text = "") {
     if (keywords.some(keyword => text.includes(keyword))) return type;
   }
   return "";
+}
+
+function normalizeKeywordList(value) {
+  if (Array.isArray(value)) {
+    return value.map(item => String(item).trim()).filter(Boolean);
+  }
+  return String(value ?? "")
+    .split(/[,\n]/)
+    .map(item => item.trim())
+    .filter(Boolean);
 }
 
 function isRejected(text) {
