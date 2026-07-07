@@ -483,23 +483,68 @@ function workbenchHtml() {
     }
 
     async function copyText(text) {
-      await navigator.clipboard.writeText(text);
-      toast("已复制话术");
+      const copied = await writeClipboardText(text);
+      toast(copied ? "已复制话术" : "复制失败，请长按首句话术手动复制");
+      return copied;
     }
 
-    async function copyAndOpen(item) {
-      const copied = navigator.clipboard.writeText(item.first_message || "");
-      openProfile(item.profile_url);
-      await copied;
-      toast("已复制话术，并打开主页");
+    function copyAndOpen(item) {
+      const copiedImmediately = copyByHiddenTextarea(item.first_message || "");
+      const copyJob = copiedImmediately ? Promise.resolve(true) : writeClipboardText(item.first_message || "");
+      const opened = openProfile(item.profile_url);
+      copyJob.then(copied => {
+        if (copied && opened) toast("已复制话术，并打开主页");
+      }).catch(() => {
+        toast("已打开主页；复制失败，请返回后手动复制话术");
+      });
     }
 
     function openProfile(url) {
       if (!url) {
         toast("没有主页链接");
-        return;
+        return false;
       }
-      window.open(url, "_blank", "noopener,noreferrer");
+      const opened = window.open(url, "_blank");
+      if (opened) opened.opener = null;
+      if (!opened) {
+        toast("浏览器拦截新标签，正在当前页面打开主页");
+        window.location.href = url;
+      }
+      return true;
+    }
+
+    async function writeClipboardText(text) {
+      if (!text) return false;
+      if (navigator.clipboard && window.isSecureContext) {
+        try {
+          await navigator.clipboard.writeText(text);
+          return true;
+        } catch (error) {
+          // Fall through to the textarea copy path below.
+        }
+      }
+      return copyByHiddenTextarea(text);
+    }
+
+    function copyByHiddenTextarea(text) {
+      if (!text) return false;
+      const box = document.createElement("textarea");
+      box.value = text;
+      box.setAttribute("readonly", "");
+      box.style.position = "fixed";
+      box.style.left = "-9999px";
+      box.style.top = "0";
+      document.body.appendChild(box);
+      box.focus();
+      box.select();
+      let copied = false;
+      try {
+        copied = document.execCommand("copy");
+      } catch (error) {
+        copied = false;
+      }
+      box.remove();
+      return copied;
     }
 
     async function markSent(ids) {
