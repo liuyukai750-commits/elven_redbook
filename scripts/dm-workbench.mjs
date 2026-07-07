@@ -274,6 +274,11 @@ function workbenchHtml() {
     .message { border-left: 4px solid var(--green); background: #f7fbf8; }
     .toast { position: fixed; right: 16px; bottom: 16px; padding: 10px 12px; background: #17202a; color: #fff; border-radius: 6px; opacity: 0; transform: translateY(8px); transition: .18s ease; pointer-events: none; }
     .toast.show { opacity: 1; transform: translateY(0); }
+    .hint { margin-top: 8px; color: var(--muted); font-size: 13px; line-height: 1.6; }
+    .context-menu { position: fixed; z-index: 20; min-width: 210px; padding: 6px; background: #fff; border: 1px solid var(--line); border-radius: 6px; box-shadow: var(--shadow); display: none; }
+    .context-menu.show { display: block; }
+    .context-menu button { width: 100%; text-align: left; border: 0; background: transparent; padding: 9px 10px; }
+    .context-menu button:hover { background: #f0f3ee; }
     @media (max-width: 840px) {
       main { grid-template-columns: 1fr; }
       .queue { border-right: 0; border-bottom: 1px solid var(--line); max-height: 48vh; }
@@ -299,7 +304,7 @@ function workbenchHtml() {
             <option value="first_touch_sent">已发送</option>
             <option value="skipped_manual">已跳过</option>
           </select>
-          <button id="batchSent" class="blue">批量标记已发送</button>
+          <button id="batchSent" class="blue">批量回写为已发送</button>
         </div>
         <div class="list" id="list"></div>
       </section>
@@ -307,10 +312,18 @@ function workbenchHtml() {
     </main>
   </div>
   <div class="toast" id="toast"></div>
+  <div class="context-menu" id="contextMenu">
+    <button data-action="copy-open">复制话术并打开主页</button>
+    <button data-action="copy">复制话术</button>
+    <button data-action="open">打开主页</button>
+    <button data-action="sent">我已发送，回写状态</button>
+    <button data-action="skip">跳过</button>
+  </div>
   <script>
     let queue = [];
     let leads = [];
     let selectedId = "";
+    let contextId = "";
 
     const els = {
       paths: document.getElementById("paths"),
@@ -320,6 +333,7 @@ function workbenchHtml() {
       search: document.getElementById("search"),
       status: document.getElementById("status"),
       batchSent: document.getElementById("batchSent"),
+      contextMenu: document.getElementById("contextMenu"),
       toast: document.getElementById("toast")
     };
 
@@ -330,6 +344,9 @@ function workbenchHtml() {
       els.search.addEventListener("input", render);
       els.status.addEventListener("change", render);
       els.batchSent.addEventListener("click", batchMarkVisibleSent);
+      document.addEventListener("click", hideContextMenu);
+      document.addEventListener("keydown", handleShortcut);
+      els.contextMenu.addEventListener("click", handleContextAction);
     }
 
     async function loadState() {
@@ -386,6 +403,13 @@ function workbenchHtml() {
           selectedId = node.dataset.id;
           render();
         });
+        node.addEventListener("contextmenu", event => {
+          event.preventDefault();
+          selectedId = node.dataset.id;
+          contextId = node.dataset.id;
+          render();
+          showContextMenu(event.clientX, event.clientY);
+        });
       }
     }
 
@@ -400,15 +424,18 @@ function workbenchHtml() {
           '<div><div class="case-title">' + escapeHtml(item.account_name || item.account_identity || "未命名账号") + '</div>' +
           '<div class="case-meta"><span>' + escapeHtml(item.queue_id) + '</span><span>' + escapeHtml(item.dispute_type || "未识别纠纷") + '</span><span>' + escapeHtml(item.status || "") + '</span></div></div>' +
         '</div>' +
+        '<div class="hint">发送动作需在小红书页面完成；工作台只负责复制话术、打开账号页、回写本地状态。快捷键：C 复制，O 打开主页，S 回写已发送，J/K 切换。</div>' +
         '<div class="actions">' +
-          '<button class="primary" id="copyMsg">复制话术</button>' +
+          '<button class="primary" id="copyOpen">复制话术并打开主页去私信</button>' +
+          '<button id="copyMsg">复制话术</button>' +
           '<button id="openProfile">打开主页</button>' +
-          '<button class="blue" id="markSent">标记已发送</button>' +
+          '<button class="blue" id="markSent">我已发送，回写状态</button>' +
           '<button class="warn" id="skipOne">跳过</button>' +
         '</div>' +
         '<div class="block message"><h2>首句话术</h2><div class="text">' + escapeHtml(item.first_message || "") + '</div></div>' +
         '<div class="block"><h2>来源评论</h2><div class="text">' + escapeHtml(item.source_comment || "") + '</div></div>' +
         '<div class="block"><h2>主页链接</h2><div class="text">' + escapeHtml(item.profile_url || "无") + '</div></div>';
+      document.getElementById("copyOpen").addEventListener("click", () => copyAndOpen(item));
       document.getElementById("copyMsg").addEventListener("click", () => copyText(item.first_message || ""));
       document.getElementById("openProfile").addEventListener("click", () => openProfile(item.profile_url));
       document.getElementById("markSent").addEventListener("click", () => markSent([item.queue_id]));
@@ -418,6 +445,13 @@ function workbenchHtml() {
     async function copyText(text) {
       await navigator.clipboard.writeText(text);
       toast("已复制话术");
+    }
+
+    async function copyAndOpen(item) {
+      const copied = navigator.clipboard.writeText(item.first_message || "");
+      openProfile(item.profile_url);
+      await copied;
+      toast("已复制话术，并打开主页");
     }
 
     function openProfile(url) {
@@ -439,6 +473,7 @@ function workbenchHtml() {
       queue = data.queue || queue;
       leads = data.leads || leads;
       toast("已标记 " + data.marked + " 条为已发送");
+      selectNextReady(ids[0]);
       render();
     }
 
@@ -452,6 +487,7 @@ function workbenchHtml() {
       if (!res.ok) throw new Error(data.error || "跳过失败");
       queue = data.queue || queue;
       toast("已跳过 " + data.skipped + " 条");
+      selectNextReady(ids[0]);
       render();
     }
 
@@ -461,8 +497,85 @@ function workbenchHtml() {
         toast("当前筛选下没有待发送队列");
         return;
       }
-      if (!confirm("确认把当前筛选下的 " + ids.length + " 条标记为已发送？")) return;
+      if (!confirm("确认把当前筛选下的 " + ids.length + " 条回写为已发送？这只更新本地状态，不会发送私信。")) return;
       await markSent(ids);
+    }
+
+    function selectNextReady(currentId) {
+      const rows = filteredQueue();
+      const currentIndex = rows.findIndex(item => item.queue_id === currentId);
+      const candidates = [...rows.slice(currentIndex + 1), ...rows.slice(0, Math.max(currentIndex, 0))];
+      const next = candidates.find(item => item.status === "ready_for_review") ||
+        queue.find(item => item.status === "ready_for_review");
+      if (next) selectedId = next.queue_id;
+    }
+
+    function selectedItem() {
+      return queue.find(item => item.queue_id === selectedId);
+    }
+
+    function contextItem() {
+      return queue.find(item => item.queue_id === contextId) || selectedItem();
+    }
+
+    function showContextMenu(x, y) {
+      const menu = els.contextMenu;
+      menu.style.left = Math.min(x, window.innerWidth - 230) + "px";
+      menu.style.top = Math.min(y, window.innerHeight - 190) + "px";
+      menu.classList.add("show");
+    }
+
+    function hideContextMenu() {
+      els.contextMenu.classList.remove("show");
+    }
+
+    async function handleContextAction(event) {
+      const action = event.target?.dataset?.action;
+      if (!action) return;
+      event.stopPropagation();
+      hideContextMenu();
+      const item = contextItem();
+      if (!item) return;
+      if (action === "copy-open") await copyAndOpen(item);
+      if (action === "copy") await copyText(item.first_message || "");
+      if (action === "open") openProfile(item.profile_url);
+      if (action === "sent") await markSent([item.queue_id]);
+      if (action === "skip") await skipItems([item.queue_id]);
+    }
+
+    async function handleShortcut(event) {
+      if (["INPUT", "TEXTAREA", "SELECT"].includes(event.target?.tagName)) return;
+      const item = selectedItem();
+      if (event.key.toLowerCase() === "j") {
+        moveSelection(1);
+        event.preventDefault();
+      }
+      if (event.key.toLowerCase() === "k") {
+        moveSelection(-1);
+        event.preventDefault();
+      }
+      if (!item) return;
+      if (event.key.toLowerCase() === "c") {
+        await copyText(item.first_message || "");
+        event.preventDefault();
+      }
+      if (event.key.toLowerCase() === "o") {
+        openProfile(item.profile_url);
+        event.preventDefault();
+      }
+      if (event.key.toLowerCase() === "s") {
+        await markSent([item.queue_id]);
+        event.preventDefault();
+      }
+    }
+
+    function moveSelection(delta) {
+      const rows = filteredQueue();
+      if (!rows.length) return;
+      const index = rows.findIndex(item => item.queue_id === selectedId);
+      const nextIndex = index < 0 ? 0 : (index + delta + rows.length) % rows.length;
+      selectedId = rows[nextIndex].queue_id;
+      render();
     }
 
     function toast(message) {
