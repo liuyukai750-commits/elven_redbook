@@ -178,6 +178,20 @@ test("buildContactQueue creates manual-send queue items", () => {
   assert.match(queue[0].first_message, /离婚财产/);
 });
 
+test("buildContactQueue skips do-not-contact leads", () => {
+  const queue = buildContactQueue([
+    {
+      account_name: "拒绝用户",
+      profile_url: "https://www.xiaohongshu.com/user/profile/rejected",
+      source_comment: "欠款起诉",
+      dispute_type: "债务纠纷",
+      status: "do_not_contact"
+    }
+  ], "你好 {{账号名}}，看到你提到{{纠纷类型}}。");
+
+  assert.equal(queue.length, 0);
+});
+
 test("updateLeadsFromReplies fills phone and surname after replies", () => {
   const leads = [
     {
@@ -251,6 +265,67 @@ test("buildDmQueue dedupes accounts and uses fixed first-touch template", () => 
   assert.equal(queue[0].account_identity, "u1");
   assert.match(queue[0].first_message, /测试律所/);
   assert.match(queue[0].first_message, /婚姻家事/);
+});
+
+test("buildDmQueue keeps the highest-score lead when deduping accounts", () => {
+  const queue = buildDmQueue([
+    {
+      lead_id: "low",
+      account_identity: "u1",
+      account_name: "王女士",
+      profile_url: "https://www.xiaohongshu.com/user/profile/u1",
+      source_comment: "离婚问题想问问",
+      dispute_type: "婚姻家事",
+      score: 40
+    },
+    {
+      lead_id: "high",
+      account_identity: "u1",
+      account_name: "王女士",
+      profile_url: "https://www.xiaohongshu.com/user/profile/u1",
+      source_comment: "离婚财产和抚养权都需要律师咨询",
+      dispute_type: "婚姻家事",
+      score: 90
+    }
+  ], {
+    firmName: "测试律所",
+    firmPhone: "010-12345678"
+  });
+
+  assert.equal(queue.length, 1);
+  assert.equal(queue[0].lead_id, "high");
+  assert.match(queue[0].source_comment, /抚养权/);
+});
+
+test("buildDmQueue skips leads already in conversation states", () => {
+  const statuses = [
+    "queued_first_touch",
+    "first_touch_sent",
+    "replied",
+    "trust_explained",
+    "surname_needed",
+    "phone_needed",
+    "dispute_needed",
+    "info_complete",
+    "do_not_contact"
+  ];
+  const leads = statuses.map((status, index) => ({
+    lead_id: `lead_${index}`,
+    account_identity: `u${index}`,
+    account_name: `用户${index}`,
+    profile_url: `https://www.xiaohongshu.com/user/profile/u${index}`,
+    source_comment: "离婚财产怎么分？",
+    dispute_type: "婚姻家事",
+    score: 80,
+    status
+  }));
+
+  const queue = buildDmQueue(leads, {
+    firmName: "测试律所",
+    firmPhone: "010-12345678"
+  });
+
+  assert.equal(queue.length, 0);
 });
 
 test("updateLeadsFromDmReplies extracts complete contact info and summary rows", () => {

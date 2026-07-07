@@ -574,6 +574,7 @@ export function buildContactQueue(leads, template) {
   const seen = new Set();
   return leads
     .filter(lead => lead.account_name && lead.source_comment)
+    .filter(lead => lead.status !== "do_not_contact")
     .filter(lead => {
       const key = lead.profile_url || lead.account_name;
       if (seen.has(key)) return false;
@@ -995,3 +996,4 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     process.exitCode = 1;
   });
 }
+

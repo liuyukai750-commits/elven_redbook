@@ -1,5 +1,5 @@
-const DEFAULT_FIRST_MESSAGE_TEMPLATE =
-  "你好，看到你在评论里提到{{纠纷类型}}问题。我是{{律所名}}的律师助理，这边可以先帮你做个初步登记，不收费、不强制咨询；如果方便，可以回复一下大概情况。";
+﻿const DEFAULT_FIRST_MESSAGE_TEMPLATE =
+  "你好，看到你在评论里提到{{纠纷类型}}问题。我是{{律所名}}的律师助理，这边可以先帮你做一个初步登记，不收费、不强制咨询；如果方便，可以回复一下大概情况。";
 
 const TRUST_MESSAGE_TEMPLATE =
   "收到。我们是{{律所名}}，办公电话是{{律所电话}}，你也可以自行搜索律所名称核验。为了方便律师判断是否适合跟进，我先登记一下：怎么称呼您？主要是哪类纠纷？";
@@ -41,6 +41,18 @@ const DISPUTE_KEYWORDS = [
   ["一般纠纷/诉讼", ["起诉", "立案", "开庭", "法院", "被告", "原告", "调解"]]
 ];
 
+const SKIP_QUEUE_STATUSES = new Set([
+  "do_not_contact",
+  "first_touch_sent",
+  "queued_first_touch",
+  "replied",
+  "trust_explained",
+  "surname_needed",
+  "phone_needed",
+  "dispute_needed",
+  "info_complete"
+]);
+
 export const DM_EXPORT_HEADERS = [
   "account_identity",
   "surname_or_title",
@@ -80,13 +92,14 @@ export function buildDmQueue(leads, options = {}) {
   const config = createDmOptions(options);
   const seen = new Set();
   const queue = [];
+  const sorted = [...leads].sort((a, b) => Number(b.score ?? 0) - Number(a.score ?? 0));
 
-  for (const lead of leads) {
+  for (const lead of sorted) {
     const accountIdentity = resolveAccountIdentity(lead);
     const dedupeKey = String(lead.profile_url || accountIdentity).trim().toLowerCase();
     const score = Number(lead.score ?? 0);
     if (!accountIdentity || !lead.source_comment) continue;
-    if (lead.status === "do_not_contact" || lead.status === "first_touch_sent" || lead.status === "info_complete") continue;
+    if (SKIP_QUEUE_STATUSES.has(lead.status)) continue;
     if (score && score < config.minScore) continue;
     if (seen.has(dedupeKey)) continue;
     seen.add(dedupeKey);
@@ -104,7 +117,7 @@ export function buildDmQueue(leads, options = {}) {
       trust_stage: "first_touch_ready",
       status: "queued_first_touch",
       risk_flags: [],
-      remarks: "首句使用固定律所助理模板；发送前已去重",
+      remarks: "首句使用固定律所助理模板；发送前必须人工确认。",
       created_at: new Date().toISOString()
     });
   }
@@ -118,7 +131,7 @@ export function markDmQueueSent(queue, sentAt = new Date().toISOString()) {
     status: "first_touch_sent",
     trust_stage: "first_touch_sent",
     first_message_sent_at: sentAt,
-    remarks: appendRemark(item.remarks, "首句已发送")
+    remarks: appendRemark(item.remarks, "首句已由人工发送")
   }));
 }
 

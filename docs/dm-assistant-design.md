@@ -1,4 +1,4 @@
-# 小红书建联助手设计
+﻿# 小红书建联助手设计
 
 ## 目标
 
@@ -8,35 +8,49 @@
 
 建联队列建议保留这些字段：
 
+- 账号ID/账号名
 - 账号名
 - 主页链接
 - 来源帖子链接
 - 评论内容
-- 需求类型
-- 是否明确求助
-- 建议回复草稿
+- 纠纷类型
+- 首句草稿
 - 人工处理状态
-- 姓/称呼
+- 姓氏/称呼
 - 电话
 - 纠纷问题摘要
 - 备注
 
+最终交付表格保持 4 列：
+
+```text
+账号ID/账号名 | 姓氏/称呼 | 电话 | 纠纷
+```
+
 ## 状态流转
 
-- `new`：新发现线索，还未生成草稿。
-- `draft_ready`：已生成建联草稿。
-- `manual_send_pending`：等待人工确认是否发送首条消息。
-- `sent_by_human`：人工已发送首条消息。
-- `replied`：对方已回复。
-- `info_extracted`：已从回复中提取姓氏、电话、纠纷问题。
-- `closed`：无需继续跟进或已完成。
+当前代码以这些状态为准：
+
+- `new`：新发现线索，还未进入建联队列。
+- `queued_first_touch`：已生成首句草稿，等待人工确认发送。
+- `first_touch_sent`：人工已发送首条消息。
+- `replied`：对方已回复，但信息还不完整或需要继续判断。
+- `trust_explained`：对方询问身份、律所或收费时，优先生成身份说明回复。
+- `surname_needed`：缺少姓氏或称呼。
+- `phone_needed`：缺少电话。
+- `dispute_needed`：缺少纠纷类型。
+- `info_complete`：账号、姓氏/称呼、电话、纠纷类型已齐全。
+- `do_not_contact`：对方拒绝或表示不需要，后续不再进入建联队列。
+
+`trust_stage` 用来记录当前沟通阶段；`status` 用来决定是否继续进入队列、是否进入最终表格。
 
 ## 首条消息规则
 
-- 首条消息由模板生成，支持填入账号名、需求类型、来源评论摘要等变量。
+- 首条消息由固定模板生成，支持填入账号名、纠纷类型、来源评论摘要、律所名和律所电话。
 - 发送动作必须由人工确认。
 - 不做无人工确认的陌生人批量私信。
 - 不发送夸大承诺、诱导留资或可能造成骚扰的内容。
+- 已经处于 `queued_first_touch`、`first_touch_sent`、`replied`、`trust_explained`、`surname_needed`、`phone_needed`、`dispute_needed`、`info_complete`、`do_not_contact` 的线索，不再重复进入首句队列。
 
 ## 回复后的 AI 处理
 
@@ -46,17 +60,20 @@
 - 提取姓氏或称呼。
 - 提取电话。
 - 归类纠纷类型。
-- 总结法律问题。
+- 生成下一句建议回复。
 - 回写到对应账号行。
 
 如果没有明确电话或姓氏，字段保持为空，不猜测。
 
 ## 文件建议
 
-- `config/contact-template.txt`：首条建联模板。
-- `output/contact-queue.csv`：给人工处理的建联队列。
-- `output/contact-queue.json`：程序读写用结构化数据。
-- `input/inbound-replies.json`：人工导入的私聊回复样例或实际记录。
+- `config/dm-assistant.example.json`：建联助手配置示例。
+- `config/dm-assistant.json`：本地实际律所配置，不建议提交。
+- `output/dm-queue.csv`：给人工处理的首句建联队列。
+- `output/dm-queue.json`：程序读写用结构化队列数据。
+- `input/dm-replies.json`：人工导入的私聊回复。
+- `output/dm-summary.csv`：最终 4 列交付表格。
+- `output/dm-summary.xlsx`：最终 4 列 Excel 表格。
 - `docs/claude-task.md`：交给 Claude Code 的明确任务。
 - `docs/claude-review.md`：Claude Code 的审查结果或候选 patch。
 
