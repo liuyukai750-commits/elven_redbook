@@ -306,11 +306,25 @@ function workbenchHtml() {
     .context-menu.show { display: block; }
     .context-menu button { width: 100%; text-align: left; border: 0; background: transparent; padding: 9px 10px; }
     .context-menu button:hover { background: #f0f3ee; }
+    .send-panel { position: fixed; inset: 0; z-index: 40; display: none; align-items: end; justify-content: center; background: rgba(23, 32, 42, .48); padding: 14px; }
+    .send-panel.show { display: flex; }
+    .send-card { width: min(720px, 100%); max-height: 92vh; overflow: auto; background: #fff; border-radius: 8px; border: 1px solid var(--line); box-shadow: 0 20px 60px rgba(23, 32, 42, .24); padding: 14px; }
+    .send-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+    .send-title { font-weight: 700; font-size: 17px; }
+    .send-account { color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+    .send-text { width: 100%; min-height: 170px; resize: vertical; line-height: 1.65; font-size: 16px; border: 1px solid var(--line); border-radius: 6px; padding: 12px; background: #f7fbf8; color: var(--ink); }
+    .send-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+    .send-actions .wide { grid-column: 1 / -1; }
+    .send-note { margin-top: 8px; color: var(--muted); font-size: 13px; line-height: 1.6; }
     @media (max-width: 840px) {
       main { grid-template-columns: 1fr; }
       .queue { border-right: 0; border-bottom: 1px solid var(--line); max-height: 48vh; }
       .toolbar { grid-template-columns: 1fr 1fr; }
       .toolbar input { grid-column: 1 / -1; }
+      .send-panel { align-items: stretch; padding: 8px; }
+      .send-card { max-height: 100%; border-radius: 8px; }
+      .send-actions { grid-template-columns: 1fr; }
+      .send-actions .wide { grid-column: auto; }
     }
   </style>
 </head>
@@ -346,11 +360,31 @@ function workbenchHtml() {
     <button data-action="sent">我已发送，回写状态</button>
     <button data-action="skip">跳过</button>
   </div>
+  <div class="send-panel" id="sendPanel" aria-hidden="true">
+    <div class="send-card">
+      <div class="send-head">
+        <div>
+          <div class="send-title">手机发送面板</div>
+          <div class="send-account" id="sendAccount"></div>
+        </div>
+        <button id="sendClose">关闭</button>
+      </div>
+      <textarea class="send-text" id="sendText" readonly></textarea>
+      <div class="send-actions">
+        <button class="primary" id="sendCopyOpen">复制并打开小红书主页</button>
+        <button id="sendCopy">复制话术</button>
+        <button id="sendOpen">打开小红书主页</button>
+        <button class="blue" id="sendSent">我已发送，回写并下一条</button>
+      </div>
+      <div class="send-note" id="sendNote">如果手机浏览器不允许自动复制，请长按上方话术文本，选择复制。进入小红书主页后，需要在小红书里点击“发私信”。</div>
+    </div>
+  </div>
   <script>
     let queue = [];
     let leads = [];
     let selectedId = "";
     let contextId = "";
+    let sendItemId = "";
 
     const els = {
       paths: document.getElementById("paths"),
@@ -361,7 +395,16 @@ function workbenchHtml() {
       status: document.getElementById("status"),
       batchSent: document.getElementById("batchSent"),
       contextMenu: document.getElementById("contextMenu"),
-      toast: document.getElementById("toast")
+      toast: document.getElementById("toast"),
+      sendPanel: document.getElementById("sendPanel"),
+      sendAccount: document.getElementById("sendAccount"),
+      sendText: document.getElementById("sendText"),
+      sendClose: document.getElementById("sendClose"),
+      sendCopyOpen: document.getElementById("sendCopyOpen"),
+      sendCopy: document.getElementById("sendCopy"),
+      sendOpen: document.getElementById("sendOpen"),
+      sendSent: document.getElementById("sendSent"),
+      sendNote: document.getElementById("sendNote")
     };
 
     init();
@@ -374,6 +417,14 @@ function workbenchHtml() {
       document.addEventListener("click", hideContextMenu);
       document.addEventListener("keydown", handleShortcut);
       els.contextMenu.addEventListener("click", handleContextAction);
+      els.sendClose.addEventListener("click", closeSendPanel);
+      els.sendPanel.addEventListener("click", event => {
+        if (event.target === els.sendPanel) closeSendPanel();
+      });
+      els.sendCopyOpen.addEventListener("click", () => handleSendPanelAction("copy-open"));
+      els.sendCopy.addEventListener("click", () => handleSendPanelAction("copy"));
+      els.sendOpen.addEventListener("click", () => handleSendPanelAction("open"));
+      els.sendSent.addEventListener("click", () => handleSendPanelAction("sent"));
     }
 
     async function loadState() {
@@ -489,14 +540,47 @@ function workbenchHtml() {
     }
 
     function copyAndOpen(item) {
-      const copiedImmediately = copyByHiddenTextarea(item.first_message || "");
-      const copyJob = copiedImmediately ? Promise.resolve(true) : writeClipboardText(item.first_message || "");
-      const opened = openProfile(item.profile_url);
-      copyJob.then(copied => {
-        if (copied && opened) toast("已复制话术，并打开主页");
-      }).catch(() => {
-        toast("已打开主页；复制失败，请返回后手动复制话术");
-      });
+      openSendPanel(item);
+      copyText(item.first_message || "");
+    }
+
+    function openSendPanel(item) {
+      sendItemId = item.queue_id;
+      els.sendAccount.textContent = (item.account_name || item.account_identity || "未命名账号") + " · " + (item.status || "");
+      els.sendText.value = item.first_message || "";
+      els.sendPanel.classList.add("show");
+      els.sendPanel.setAttribute("aria-hidden", "false");
+      selectSendText();
+    }
+
+    function closeSendPanel() {
+      els.sendPanel.classList.remove("show");
+      els.sendPanel.setAttribute("aria-hidden", "true");
+    }
+
+    function selectSendText() {
+      els.sendText.focus();
+      els.sendText.setSelectionRange(0, els.sendText.value.length);
+    }
+
+    async function handleSendPanelAction(action) {
+      const item = queue.find(row => row.queue_id === sendItemId) || selectedItem();
+      if (!item) return;
+      if (action === "copy-open") {
+        const copied = await copyText(item.first_message || "");
+        selectSendText();
+        openProfile(item.profile_url);
+        if (!copied) toast("已打开主页；如未复制，请返回后长按话术复制");
+      }
+      if (action === "copy") {
+        await copyText(item.first_message || "");
+        selectSendText();
+      }
+      if (action === "open") openProfile(item.profile_url);
+      if (action === "sent") {
+        await markSent([item.queue_id]);
+        closeSendPanel();
+      }
     }
 
     function openProfile(url) {
