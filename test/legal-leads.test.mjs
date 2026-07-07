@@ -25,6 +25,10 @@ import {
   toDmSummaryRows,
   updateLeadsFromDmReplies
 } from "../scripts/dm-assistant.mjs";
+import {
+  markSelectedSent,
+  readState
+} from "../scripts/dm-workbench.mjs";
 import { normalizeXhsUrl } from "../scripts/in-app-browser-batch.mjs";
 
 const config = {
@@ -514,6 +518,41 @@ test("dm-queue works with CLI firm options when dm config file is missing", asyn
   assert.equal(queue.length, 1);
   assert.equal(queue[0].status, "ready_for_review");
   assert.match(queue[0].first_message, /测试律所/);
+});
+
+test("dm workbench marks sent queue items and leads", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "redbook-workbench-"));
+  const queuePath = path.join(dir, "dm-queue.json");
+  const leadsPath = path.join(dir, "legal-leads.json");
+  await writeFile(queuePath, JSON.stringify([
+    {
+      queue_id: "dm_0001",
+      lead_id: "lead_1",
+      account_identity: "u1",
+      account_name: "王女士",
+      profile_url: "https://www.xiaohongshu.com/user/profile/u1",
+      first_message: "您好",
+      status: "ready_for_review"
+    }
+  ], null, 2), "utf8");
+  await writeFile(leadsPath, JSON.stringify([
+    {
+      lead_id: "lead_1",
+      account_identity: "u1",
+      account_name: "王女士",
+      profile_url: "https://www.xiaohongshu.com/user/profile/u1",
+      status: "new"
+    }
+  ], null, 2), "utf8");
+
+  const state = { queuePath, leadsPath };
+  const before = await readState(state);
+  assert.equal(before.summary.ready, 1);
+
+  const updated = await markSelectedSent(state, ["dm_0001"], "2026-07-07T12:00:00.000Z");
+  assert.equal(updated.summary.sent, 1);
+  assert.equal(updated.queue[0].status, "first_touch_sent");
+  assert.equal(updated.leads[0].status, "first_touch_sent");
 });
 
 test("updateLeadsFromDmReplies extracts complete contact info and summary rows", () => {

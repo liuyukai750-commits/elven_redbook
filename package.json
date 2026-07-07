@@ -11,6 +11,7 @@
     "from-replies": "node scripts/legal-leads.mjs from-replies",
     "dm-queue": "node scripts/legal-leads.mjs dm-queue",
     "dm-replies": "node scripts/legal-leads.mjs dm-replies",
+    "dm-workbench": "node scripts/dm-workbench.mjs",
     "browser-snippet": "node scripts/legal-leads.mjs browser-snippet",
     "chrome:launch": "node scripts/chrome-cdp-redbook.mjs launch",
     "chrome:collect": "node scripts/chrome-cdp-redbook.mjs collect",
