@@ -1,10 +1,14 @@
 import assert from "node:assert/strict";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { test } from "node:test";
 import {
   analyzeComment,
   buildContactQueue,
   buildLeads,
   createXlsxBuffer,
+  main,
   normalizeComments,
   normalizeReplies,
   updateLeadsFromReplies,
@@ -13,7 +17,9 @@ import {
 import {
   buildSkippedDmQueue,
   buildDmQueue,
+  findCompetitorMatches,
   isCompetitorAccount,
+  markDmQueueSent,
   normalizeDmReplies,
   toDmCsv,
   toDmSummaryRows,
@@ -365,6 +371,119 @@ test("buildDmQueue skips possible lawyer or legal-service accounts", () => {
   assert.equal(queue[0].lead_id, "client");
   assert.equal(skipped.length, 1);
   assert.equal(skipped[0].status, "skipped_competitor");
+});
+
+test("buildDmQueue skips competitor behavior found in source comments", () => {
+  const lead = {
+    lead_id: "comment_competitor",
+    account_identity: "u3",
+    account_name: "小明",
+    profile_url: "https://www.xiaohongshu.com/user/profile/u3",
+    source_comment: "我是长沙执业律师，可以私信咨询。",
+    dispute_type: "婚姻家事",
+    score: 90
+  };
+  const options = {
+    firmName: "测试律所",
+    firmPhone: "010-12345678"
+  };
+  const queue = buildDmQueue([lead], options);
+  const skipped = buildSkippedDmQueue([lead], options);
+
+  assert.equal(isCompetitorAccount(lead), true);
+  assert.deepEqual(findCompetitorMatches(lead), ["评论自称律师", "评论招揽法律咨询", "评论提到执业律师"]);
+  assert.equal(queue.length, 0);
+  assert.equal(skipped.length, 1);
+  assert.match(skipped[0].remarks, /评论自称律师/);
+});
+
+test("buildDmQueue keeps ordinary client comments that mention lawyers", () => {
+  const lead = {
+    lead_id: "client_lawyer_word",
+    account_identity: "u4",
+    account_name: "普通咨询用户",
+    profile_url: "https://www.xiaohongshu.com/user/profile/u4",
+    source_comment: "我想找律师咨询离婚财产和抚养权问题",
+    dispute_type: "婚姻家事",
+    score: 90
+  };
+  const queue = buildDmQueue([lead], {
+    firmName: "测试律所",
+    firmPhone: "010-12345678"
+  });
+
+  assert.equal(isCompetitorAccount(lead), false);
+  assert.equal(queue.length, 1);
+});
+
+test("markDmQueueSent marks queue items after manual sending", () => {
+  const marked = markDmQueueSent([
+    {
+      queue_id: "dm_0001",
+      lead_id: "lead_1",
+      status: "ready_for_review",
+      remarks: "首句使用固定律所助理模板"
+    }
+  ], "2026-07-07T12:00:00.000Z");
+
+  assert.equal(marked[0].status, "first_touch_sent");
+  assert.equal(marked[0].first_message_sent_at, "2026-07-07T12:00:00.000Z");
+  assert.match(marked[0].remarks, /首句已由人工发送/);
+});
+
+test("dm-mark-sent updates queue and matching leads json", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "redbook-dm-"));
+  const queuePath = path.join(dir, "dm-queue.json");
+  const leadsPath = path.join(dir, "legal-leads.json");
+  await writeFile(queuePath, JSON.stringify([
+    {
+      queue_id: "dm_0001",
+      lead_id: "lead_1",
+      account_identity: "u1",
+      account_name: "王女士",
+      profile_url: "https://www.xiaohongshu.com/user/profile/u1",
+      status: "ready_for_review"
+    },
+    {
+      queue_id: "dm_0002",
+      lead_id: "lead_2",
+      account_identity: "u2",
+      account_name: "李先生",
+      profile_url: "https://www.xiaohongshu.com/user/profile/u2",
+      status: "ready_for_review"
+    }
+  ], null, 2), "utf8");
+  await writeFile(leadsPath, JSON.stringify([
+    {
+      lead_id: "lead_1",
+      account_identity: "u1",
+      account_name: "王女士",
+      profile_url: "https://www.xiaohongshu.com/user/profile/u1",
+      status: "new"
+    },
+    {
+      lead_id: "lead_2",
+      account_identity: "u2",
+      account_name: "李先生",
+      profile_url: "https://www.xiaohongshu.com/user/profile/u2",
+      status: "new"
+    }
+  ], null, 2), "utf8");
+
+  await main([
+    "dm-mark-sent",
+    "--input", queuePath,
+    "--leads", leadsPath,
+    "--queue-id", "dm_0001",
+    "--sent-at", "2026-07-07T12:00:00.000Z"
+  ]);
+
+  const queue = JSON.parse(await readFile(queuePath, "utf8"));
+  const leads = JSON.parse(await readFile(leadsPath, "utf8"));
+  assert.equal(queue[0].status, "first_touch_sent");
+  assert.equal(queue[1].status, "ready_for_review");
+  assert.equal(leads[0].status, "first_touch_sent");
+  assert.equal(leads[1].status, "new");
 });
 
 test("updateLeadsFromDmReplies extracts complete contact info and summary rows", () => {

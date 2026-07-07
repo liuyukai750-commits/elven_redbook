@@ -11,6 +11,7 @@ import {
   buildSkippedDmQueue,
   createDmOptions,
   extractAccountId,
+  markDmQueueSent,
   normalizeDmReplies,
   toDmCsv,
   toDmQueueCsv,
@@ -88,6 +89,11 @@ export async function main(argv = process.argv.slice(2)) {
 
   if (command === "dm-queue") {
     await runDmQueue(args);
+    return;
+  }
+
+  if (command === "dm-mark-sent") {
+    await runDmMarkSent(args);
     return;
   }
 
@@ -259,6 +265,37 @@ async function runDmQueue(args) {
   console.log(`Skipped JSON: ${skippedJsonPath}`);
 }
 
+async function runDmMarkSent(args) {
+  const input = path.resolve(args.input ?? path.join(DEFAULT_OUTPUT_DIR, "dm-queue.json"));
+  const outputDir = path.resolve(args["output-dir"] ?? path.dirname(input));
+  const leadsPath = path.resolve(args.leads ?? path.join(outputDir, "legal-leads.json"));
+  const sentAt = args["sent-at"] ?? new Date().toISOString();
+  const filter = parseIdFilter(args);
+
+  const queue = await readJsonFile(input);
+  const selected = filterQueueItems(queue, filter);
+  if (selected.length === 0) {
+    throw new Error("No matching DM queue items to mark sent.");
+  }
+
+  const selectedKeys = new Set(selected.map(queueMatchKey));
+  const markedQueue = queue.map(item =>
+    selectedKeys.has(queueMatchKey(item))
+      ? markDmQueueSent([item], sentAt)[0]
+      : item
+  );
+  const leads = await readJsonFile(leadsPath);
+  const updatedLeads = markLeadsFirstTouchSent(leads, selected, sentAt);
+
+  await mkdir(outputDir, { recursive: true });
+  const writtenQueuePath = await writeOutputFile(input, JSON.stringify(markedQueue, null, 2), "utf8");
+  const writtenLeadsPath = await writeOutputFile(leadsPath, JSON.stringify(updatedLeads, null, 2), "utf8");
+
+  console.log(`Marked ${selected.length} DM queue items as first_touch_sent.`);
+  console.log(`Queue JSON: ${writtenQueuePath}`);
+  console.log(`Leads JSON: ${writtenLeadsPath}`);
+}
+
 async function runDmReplies(args) {
   const repliesPath = args.input;
   if (!repliesPath) {
@@ -383,6 +420,80 @@ async function readJsonFile(filePath) {
   const raw = await readFile(path.resolve(filePath), "utf8");
   return JSON.parse(raw.replace(/^\uFEFF/, ""));
 }
+
+function parseIdFilter(args) {
+  return {
+    queueIds: splitList(args["queue-id"] ?? args["queue-ids"]),
+    leadIds: splitList(args["lead-id"] ?? args["lead-ids"])
+  };
+}
+
+function splitList(value) {
+  if (!value || value === true) return [];
+  return String(value).split(",").map(item => item.trim()).filter(Boolean);
+}
+
+function filterQueueItems(queue, filter) {
+  const queueIds = new Set(filter.queueIds);
+  const leadIds = new Set(filter.leadIds);
+  if (queueIds.size === 0 && leadIds.size === 0) return queue;
+  return queue.filter(item =>
+    (queueIds.size > 0 && queueIds.has(item.queue_id)) ||
+    (leadIds.size > 0 && leadIds.has(item.lead_id))
+  );
+}
+
+function markLeadsFirstTouchSent(leads, sentQueueItems, sentAt) {
+  const sentKeys = new Set(sentQueueItems.map(queueLeadMatchKey).filter(Boolean));
+  return leads.map(lead => {
+    if (!sentKeys.has(leadMatchKey(lead))) return lead;
+    return {
+      ...lead,
+      status: "first_touch_sent",
+      trust_stage: "first_touch_sent",
+      first_message_sent_at: sentAt,
+      remarks: appendLocalRemark(lead.remarks, "首句已标记为已发送")
+    };
+  });
+}
+
+function queueMatchKey(item) {
+  return [
+    item.queue_id ?? "",
+    item.lead_id ?? "",
+    item.account_id ?? "",
+    item.profile_url ?? "",
+    item.account_identity ?? "",
+    item.account_name ?? ""
+  ].join("|");
+}
+
+function queueLeadMatchKey(item) {
+  return String(
+    item.lead_id ||
+    item.profile_url ||
+    item.account_id ||
+    item.account_identity ||
+    item.account_name ||
+    ""
+  ).trim();
+}
+
+function leadMatchKey(lead) {
+  return String(
+    lead.lead_id ||
+    lead.profile_url ||
+    lead.account_id ||
+    lead.account_identity ||
+    lead.account_name ||
+    ""
+  ).trim();
+}
+
+function appendLocalRemark(existing, value) {
+  return existing ? `${existing}; ${value}` : value;
+}
+
 async function loadConfig(configPath) {
   return readJsonFile(path.resolve(configPath));
 }
@@ -937,6 +1048,15 @@ Commands:
 
   browser-snippet
     Print a browser-console fallback snippet for visible comment pages.
+
+  dm-queue --input <legal-leads.json> [--output-dir output] [--daily-send-limit 30]
+    Generate first-touch queue files and skipped competitor review files.
+
+  dm-mark-sent --input <dm-queue.json> --leads <legal-leads.json> [--queue-id dm_0001] [--lead-id lead_1]
+    Mark selected queue items and matching leads as first_touch_sent after manual sending.
+
+  dm-replies --input <dm-replies.json> --leads <legal-leads.json> [--output-dir output]
+    Process replies and fill surname, phone, and dispute fields.
 `);
 }
 

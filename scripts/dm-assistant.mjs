@@ -64,6 +64,14 @@ const DEFAULT_COMPETITOR_KEYWORDS = [
   "律师事务所"
 ];
 
+const COMPETITOR_COMMENT_PATTERNS = [
+  { label: "评论自称律师", pattern: /我是.{0,8}(律师|法务|法律顾问)/ },
+  { label: "评论自称律所", pattern: /我们.{0,8}(律所|律师事务所|法律咨询)/ },
+  { label: "评论招揽法律咨询", pattern: /(加微信|加V|加v|私信).{0,12}(咨询|法律|律师|律所)/ },
+  { label: "评论提供免费法律咨询", pattern: /(免费|公益).{0,6}法律咨询/ },
+  { label: "评论提到执业律师", pattern: /执业律师|律师执业证/ }
+];
+
 export const DM_EXPORT_HEADERS = [
   "account_identity",
   "surname_or_title",
@@ -144,20 +152,24 @@ export function buildSkippedDmQueue(leads, options = {}) {
   const config = createDmOptions(options);
   return leads
     .filter(lead => isCompetitorAccount(lead, config.competitorKeywords))
-    .map((lead, index) => ({
-      queue_id: `skip_${String(index + 1).padStart(4, "0")}`,
-      lead_id: lead.lead_id ?? "",
-      account_identity: resolveAccountIdentity(lead),
-      account_id: lead.account_id ?? extractAccountId(lead.profile_url) ?? "",
-      account_name: lead.account_name ?? "",
-      profile_url: lead.profile_url ?? "",
-      source_comment: lead.source_comment ?? "",
-      dispute_type: lead.dispute_type || inferDisputeType(lead.source_comment) || "",
-      status: "skipped_competitor",
-      risk_flags: ["possible_lawyer_or_legal_service_account"],
-      remarks: "账号名或身份字段命中疑似同行关键词，跳过建联。",
-      created_at: new Date().toISOString()
-    }));
+    .map((lead, index) => {
+      const matches = findCompetitorMatches(lead, config.competitorKeywords);
+      return {
+        queue_id: `skip_${String(index + 1).padStart(4, "0")}`,
+        lead_id: lead.lead_id ?? "",
+        account_identity: resolveAccountIdentity(lead),
+        account_id: lead.account_id ?? extractAccountId(lead.profile_url) ?? "",
+        account_name: lead.account_name ?? "",
+        profile_url: lead.profile_url ?? "",
+        source_comment: lead.source_comment ?? "",
+        dispute_type: lead.dispute_type || inferDisputeType(lead.source_comment) || "",
+        status: "skipped_competitor",
+        risk_flags: ["possible_lawyer_or_legal_service_account"],
+        matched_competitor_signals: matches,
+        remarks: `命中疑似同行特征：${matches.join("、") || "未记录"}，跳过建联。`,
+        created_at: new Date().toISOString()
+      };
+    });
 }
 
 export function markDmQueueSent(queue, sentAt = new Date().toISOString()) {
@@ -346,13 +358,24 @@ export function resolveAccountIdentity(lead) {
 }
 
 export function isCompetitorAccount(lead, keywords = DEFAULT_COMPETITOR_KEYWORDS) {
+  return findCompetitorMatches(lead, keywords).length > 0;
+}
+
+export function findCompetitorMatches(lead, keywords = DEFAULT_COMPETITOR_KEYWORDS) {
   const haystack = [
     lead.account_name,
     lead.account_identity,
     lead.account_id,
     lead.profile_url
   ].map(value => String(value ?? "")).join(" ");
-  return normalizeKeywordList(keywords).some(keyword => keyword && haystack.includes(keyword));
+  const matches = normalizeKeywordList(keywords)
+    .filter(keyword => keyword && haystack.includes(keyword))
+    .map(keyword => `账号字段:${keyword}`);
+  const comment = String(lead.source_comment ?? "");
+  for (const item of COMPETITOR_COMMENT_PATTERNS) {
+    if (item.pattern.test(comment)) matches.push(item.label);
+  }
+  return [...new Set(matches)];
 }
 
 export function extractAccountId(profileUrl = "") {
